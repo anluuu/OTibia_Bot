@@ -243,13 +243,19 @@ class SpellTab(QWidget):
             # Stop existing thread if running
             if self.spell_thread and self.spell_thread.isRunning():
                 self.spell_thread.stop()
-                if not self.spell_thread.wait(5000):
-                    print("WARNING: SpellThread did not stop in time!")
-            self.spell_thread = SpellThread(self.spellList_listWidget)
+                self.spell_thread.wait(2000)
+            
+            # Extract data while in GUI thread
+            spell_data_list = [
+                self.spellList_listWidget.item(i).data(Qt.UserRole) 
+                for i in range(self.spellList_listWidget.count())
+            ]
+            
+            self.spell_thread = SpellThread(spell_data_list)
             self.spell_thread.start()
         else:
             if self.spell_thread:
                 self.spell_thread.stop()
-                if not self.spell_thread.wait(5000):
-                    print("WARNING: SpellThread did not stop in time!")
+                self.spell_thread.wait(2000)
                 self.spell_thread = None
+

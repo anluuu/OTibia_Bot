@@ -11,48 +11,52 @@ from Functions.MemoryFunctions import read_target_info, read_my_wpt, read_target
 from Functions.MouseFunctions import mouse_function
 
 
+from PyQt5.QtCore import QThread, Qt, pyqtSignal
+
 class SetSmartHotkeyThread(QThread):
-    def __init__(self, hotkeys_listWidget, hotkey_option_combobox, rune_option_combobox, status_label):
+    status_signal = pyqtSignal(str, str) # text, style
+    hotkey_set_signal = pyqtSignal(dict) # smart_hotkey_data
+
+    def __init__(self, hotkey_name, rune_option):
         super().__init__()
         self.running = True
-        self.hotkeys_listWidget = hotkeys_listWidget
-        self.status_label = status_label
-        self.hotkey_option_combobox = hotkey_option_combobox
-        self.rune_option_combobox = rune_option_combobox
+        self.hotkey_name = hotkey_name
+        self.rune_option = rune_option
 
     def run(self):
-        self.status_label.setStyleSheet("color: blue; font-weight: bold;")
+        self.status_signal.emit("Move mouse to target location...", "color: blue; font-weight: bold;")
         while self.running:
             x, y = win32gui.ScreenToClient(Addresses.game, win32api.GetCursorPos())
-            self.status_label.setText(
-                f"Current: X={x}  Y={y}"
-            )
+            self.status_signal.emit(f"Current: X={x}  Y={y}", "color: blue; font-weight: bold;")
+            
             if win32api.GetAsyncKeyState(win32con.VK_LBUTTON) & 0x8000:
-                self.status_label.setStyleSheet("color: green; font-weight: bold;")
-                self.status_label.setText(f"Coordinates set at X={x}, Y={y}")
-                self.running = False
+                self.status_signal.emit(f"Coordinates set at X={x}, Y={y}", "color: green; font-weight: bold;")
+                
                 smart_hotkey_data = {
-                    "Hotkey": self.hotkey_option_combobox.currentText(),
-                    "Option": self.rune_option_combobox.currentText(),
+                    "Hotkey": self.hotkey_name,
+                    "Option": self.rune_option,
                     "X": x,
                     "Y": y
                 }
-                hotkey_item = QListWidgetItem(smart_hotkey_data["Hotkey"])
-                hotkey_item.setData(Qt.UserRole, smart_hotkey_data)
-                self.hotkeys_listWidget.addItem(hotkey_item)
+                self.hotkey_set_signal.emit(smart_hotkey_data)
+                self.running = False
                 return
+            QThread.msleep(50)
+
+    def stop(self):
+        self.running = False
 
 
 class SmartHotkeysThread(QThread):
-    def __init__(self, hotkeys_listWidget):
+    def __init__(self, hotkeys_data):
         super().__init__()
         self.running = True
-        self.hotkeys_listWidget = hotkeys_listWidget
+        self.hotkeys_data = hotkeys_data
 
     def run(self):
         while self.running:
-            for index in range(self.hotkeys_listWidget.count()):
-                hotkey_data = self.hotkeys_listWidget.item(index).data(Qt.UserRole)
+            for hotkey_data in self.hotkeys_data:
+                if not self.running: break
                 hotkey_number = int(hotkey_data['Hotkey'][1:])
                 vk_code = 111 + hotkey_number
                 if win32api.GetAsyncKeyState(vk_code) & 1:
@@ -74,3 +78,4 @@ class SmartHotkeysThread(QThread):
 
     def stop(self):
         self.running = False
+

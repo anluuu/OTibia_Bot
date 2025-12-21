@@ -39,17 +39,17 @@ def attack_monster(attack_data) -> bool:
 
 class SpellThread(QThread):
 
-    def __init__(self, spell_list):
+    def __init__(self, spell_data_list):
         super().__init__()
-        self.spell_list = spell_list
+        self.spell_data_list = spell_data_list
         self.running = True
 
     def run(self):
         while self.running:
             try:
                 if not attack_Lock.locked():
-                    for spell_index in range(self.spell_list.count()):
-                        spell_data = self.spell_list.item(spell_index).data(Qt.UserRole)
+                    for spell_data in self.spell_data_list:
+                        if not self.running: break
                         if read_targeting_status() != 0:
                             if attack_monster(spell_data):
                                 
@@ -77,3 +77,4 @@ class SpellThread(QThread):
 
     def stop(self):
         self.running = False
+

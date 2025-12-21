@@ -412,20 +412,52 @@ class LootingTab(QWidget):
         except FileNotFoundError:
             self.status_label.setText(f"Profile '{profile_name}' not found.")
 
+    def get_loot_data(self):
+        """Extract loot data from table widget in a thread-safe way (to be called from GUI thread)"""
+        loot_list = []
+        for row in range(self.loot_tableWidget.rowCount()):
+            # Get image path from preview label
+            image_widget = self.loot_tableWidget.cellWidget(row, 0)
+            if not image_widget: continue
+            preview_label = image_widget.findChild(QLabel)
+            image_path = preview_label.property("image_path") if preview_label else ""
+            
+            # Get action from ComboBox
+            action_combo = self.loot_tableWidget.cellWidget(row, 1)
+            action = action_combo.currentText() if action_combo else "RightClick"
+            
+            # Get CTRL state from Checkbox
+            ctrl_widget = self.loot_tableWidget.cellWidget(row, 2)
+            use_ctrl = False
+            if ctrl_widget:
+                ctrl_checkbox = ctrl_widget.findChild(QCheckBox)
+                use_ctrl = ctrl_checkbox.isChecked() if ctrl_checkbox else False
+
+            if image_path:
+                loot_list.append({
+                    "ImagePath": image_path,
+                    "Action": action,
+                    "UseCtrl": use_ctrl
+                })
+        return loot_list
+
     def start_loot_thread(self, state) -> None:
         self.looting_enabled = (state == Qt.Checked)
         
         if state == Qt.Checked:
             # Stop existing thread if running
-            if self.loot_thread and self.loot_thread.isRunning():
+            if self.loot_thread:
                 self.loot_thread.stop()
-                if not self.loot_thread.wait(5000):
-                    print("WARNING: LootThread did not stop in time!")
-            self.loot_thread = LootThread(self.loot_tableWidget, Qt.Unchecked)
+                self.loot_thread.wait(2000)
+            
+            # Extract data while still in GUI thread
+            loot_data = self.get_loot_data()
+            
+            self.loot_thread = LootThread(loot_data, Qt.Unchecked)
             self.loot_thread.start()
         else:
             if self.loot_thread:
                 self.loot_thread.stop()
-                if not self.loot_thread.wait(5000):
-                    print("WARNING: LootThread did not stop in time!")
+                self.loot_thread.wait(2000)
                 self.loot_thread = None
+

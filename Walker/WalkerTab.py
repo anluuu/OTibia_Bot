@@ -425,44 +425,83 @@ class WalkerTab(QWidget):
         square_text = "square" if value == 1 else "squares"
         self.interval_label.setText(f"Record every: {value} {square_text}")
 
-    def start_record_thread(self, state):
+    def start_record_thread(self, state) -> None:
         if state == Qt.Checked:
-            # Stop existing thread if running
-            if self.record_thread and self.record_thread.isRunning():
+            if self.record_thread:
                 self.record_thread.stop()
-                if not self.record_thread.wait(5000):
-                    print("WARNING: RecordThread did not stop in time!")
-            interval = self.interval_slider.value()
-            self.record_thread = RecordThread(self.direction_group, self.action_group, interval)
-            self.record_thread.wpt_update.connect(self.update_waypointList)
+                self.record_thread.wait(2000)
+            
+            self.record_thread = RecordThread(self.recordInterval_spinBox.value())
+            self.record_thread.wpt_recorded_signal.connect(self.on_waypoint_recorded)
+            
+            # Use a timer to sync UI state to RecordThread
+            self.sync_timer = QTimer(self)
+            self.sync_timer.timeout.connect(self.sync_record_data)
+            self.sync_timer.start(200)
+
             self.record_thread.start()
         else:
             if self.record_thread:
                 self.record_thread.stop()
-                if not self.record_thread.wait(5000):
-                    print("WARNING: RecordThread did not stop in time!")
+                self.record_thread.wait(2000)
                 self.record_thread = None
+            if hasattr(self, 'sync_timer'):
+                self.sync_timer.stop()
 
-    def start_walker_thread(self, state):
+    def sync_record_data(self):
+        if self.record_thread:
+            dir_id = self.direction_group.checkedId()
+            dir_text = "Center"
+            btn = self.direction_group.button(dir_id)
+            if btn:
+                dir_text = btn.text()
+                if dir_text == "C": dir_text = "Center"
+            
+            act_id = self.action_group.checkedId()
+            self.record_thread.update_snapshot(act_id, dir_id, dir_text)
+
+    def on_waypoint_recorded(self, data):
+        # Create QListWidgetItem in GUI thread
+        display_text = "Unknown"
+        act_id = data["Action"]
+        dir_text = data["Display"]
+        x, y, z = data["X"], data["Y"], data["Z"]
+
+        if act_id == 0: display_text = f'Stand: {x} {y} {z} {dir_text}'
+        elif act_id == 4: display_text = f'Lure: {x} {y} {z}'
+        elif act_id == 1: display_text = f'Rope: {x} {y} {z}'
+        elif act_id == 2: display_text = f'Shovel: {x} {y} {z}'
+        elif act_id == 3: display_text = f'Ladder: {x} {y} {z}'
+
+        waypoint = QListWidgetItem(display_text)
+        waypoint.setData(Qt.UserRole, data)
+        self.waypointList_listWidget.addItem(waypoint)
+        self.waypointList_listWidget.scrollToBottom()
+
+    def start_walker_thread(self, state) -> None:
         if state == Qt.Checked:
-            # Stop existing thread if running
-            if self.walker_thread and self.walker_thread.isRunning():
+            if self.walker_thread:
                 self.walker_thread.stop()
-                if not self.walker_thread.wait(5000):
-                    print("WARNING: WalkerThread did not stop in time!")
+                self.walker_thread.wait(2000)
+
+            # Extract waypoints
             waypoints = [
                 self.waypointList_listWidget.item(i).data(Qt.UserRole)
                 for i in range(self.waypointList_listWidget.count())
             ]
+            
+            if not waypoints:
+                return
+
             self.walker_thread = WalkerThread(waypoints)
             self.walker_thread.index_update.connect(self.update_waypointList)
             self.walker_thread.start()
         else:
             if self.walker_thread:
                 self.walker_thread.stop()
-                if not self.walker_thread.wait(5000):
-                    print("WARNING: WalkerThread did not stop in time!")
+                self.walker_thread.wait(2000)
                 self.walker_thread = None
+
 
     def update_waypointList(self, option, waypoint):
         if option == 0:

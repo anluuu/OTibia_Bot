@@ -19,17 +19,17 @@ def read_heal_data(heal_data):
 
 class HealThread(QThread):
 
-    def __init__(self, healing_list):
+    def __init__(self, healing_data):
         super().__init__()
-        self.healing_list = healing_list
+        self.healing_data = healing_data
         self.running = True
 
     def run(self):
         while self.running:
             try:
-                for index in range(self.healing_list.count()):
-                    heal_type, heal_option, heal_below, heal_above, heal_min_mp = read_heal_data(
-                        self.healing_list.item(index).data(Qt.UserRole))
+                for heal_data in self.healing_data:
+                    if not self.running: break
+                    heal_type, heal_option, heal_below, heal_above, heal_min_mp = read_heal_data(heal_data)
                     current_hp, current_max_hp, current_mp, current_max_mp = read_my_stats()
                     hp_percentage = (current_hp * 100) / current_max_hp
                     mp_percentage = (current_mp * 100) / current_max_mp
@@ -71,17 +71,17 @@ def attack_monster(attack_data) -> bool:
 
 class AttackThread(QThread):
 
-    def __init__(self, attack_list):
+    def __init__(self, attack_data_list):
         super().__init__()
-        self.attack_list = attack_list
+        self.attack_data_list = attack_data_list
         self.running = True
 
     def run(self):
         while self.running:
             try:
                 if not attack_Lock.locked():
-                    for attack_index in range(self.attack_list.count()):
-                        attack_data = self.attack_list.item(attack_index).data(Qt.UserRole)
+                    for attack_data in self.attack_data_list:
+                        if not self.running: break
                         if read_targeting_status() != 0:
                             if attack_monster(attack_data):
                                 if attack_data['Key'][0] == 'F':
@@ -109,3 +109,4 @@ class AttackThread(QThread):
 
     def stop(self):
         self.running = False
+

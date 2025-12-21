@@ -8,65 +8,60 @@ from PyQt5.QtCore import QThread, Qt
 from PyQt5.QtWidgets import QCheckBox, QLineEdit, QComboBox
 
 class HotkeysThread(QThread):
-    def __init__(self, hotkeys_tableWidget):
+    def __init__(self, hotkey_data_list=None):
         super().__init__()
         self.running = True
-        self.hotkeys_tableWidget = hotkeys_tableWidget
+        self.hotkey_data_list = hotkey_data_list if hotkey_data_list else []
         self.last_execution_times = {}
         self.next_delays = {}
+        self.data_lock = QMutex()
+
+    def update_hotkey_data(self, new_data):
+        with QMutexLocker(self.data_lock):
+            self.hotkey_data_list = new_data
+            # We might want to clear execution times if the list changed significantly,
+            # but let's keep it simple for now.
 
     def run(self):
         while self.running:
             current_time = time.time()
             
             try:
-                for row in range(self.hotkeys_tableWidget.rowCount()):
-                    # Get values from table cells
-                    hotkey_combo = self.hotkeys_tableWidget.cellWidget(row, 0)
-                    time_edit = self.hotkeys_tableWidget.cellWidget(row, 1)
-                    random_edit = self.hotkeys_tableWidget.cellWidget(row, 2)
-                    checkbox_widget = self.hotkeys_tableWidget.cellWidget(row, 3)
-                    
-                    if not hotkey_combo or not time_edit or not random_edit or not checkbox_widget:
+                with QMutexLocker(self.data_lock):
+                    current_list = list(self.hotkey_data_list)
+                
+                for index, entry in enumerate(current_list):
+                    if not entry.get("Active", False):
                         continue
                     
-                    # Check if active
-                    checkbox = checkbox_widget.findChild(QCheckBox)
-                    if not checkbox or not checkbox.isChecked():
-                        continue
+                    hotkey_name = entry.get("Hotkey")
+                    interval = entry.get("Interval", 2.0)
+                    randomize = entry.get("Randomize", 0.5)
                     
-                    # Get values
-                    hotkey_name = hotkey_combo.currentText()
-                    try:
-                        interval = float(time_edit.text())
-                        randomize = float(random_edit.text())
-                    except ValueError:
+                    if not hotkey_name:
                         continue
                     
                     # Initialize last execution time if not present
-                    if row not in self.last_execution_times:
-                        self.last_execution_times[row] = current_time
-                        self.next_delays[row] = interval + random.uniform(0, randomize)
+                    if index not in self.last_execution_times:
+                        self.last_execution_times[index] = current_time
+                        self.next_delays[index] = interval + random.uniform(0, randomize)
                         continue
                     
-                    last_time = self.last_execution_times[row]
+                    last_time = self.last_execution_times[index]
                     
                     # Check if enough time has passed
-                    if current_time - last_time >= self.next_delays[row]:
+                    if current_time - last_time >= self.next_delays[index]:
                         # Execute Hotkey
                         self.press_hotkey(hotkey_name)
                         
                         # Update time and calculate next delay
-                        self.last_execution_times[row] = current_time
-                        self.next_delays[row] = interval + random.uniform(0, randomize)
-            except RuntimeError:
-                # Widget deleted, stop thread
-                self.running = False
-                break
+                        self.last_execution_times[index] = current_time
+                        self.next_delays[index] = interval + random.uniform(0, randomize)
             except Exception as e:
                 print(f"HotkeysThread error: {e}")
             
             QThread.msleep(10)
+
 
     def press_hotkey(self, hotkey_name):
         # Map F1-F12 to VK codes

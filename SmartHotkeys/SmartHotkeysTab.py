@@ -62,26 +62,51 @@ class SmartHotkeysTab(QWidget):
         # Finally, add the status label in row 2 (spanning all columns)
         self.layout.addWidget(self.status_label, 2, 0, 1, 3)
 
-    def start_set_hotkey_thread(self):
-        self.set_smart_hotkey_thread = SetSmartHotkeyThread(self.smart_hotkeys_listWidget, self.hotkey_option_combobox,
-                                                            self.rune_option_combobox, self.status_label)
-        self.set_smart_hotkey_thread.start()
+    def start_set_hotkey_thread(self) -> None:
+        if self.set_hotkey_thread and self.set_hotkey_thread.isRunning():
+            self.set_hotkey_thread.stop()
+            self.set_hotkey_thread.wait(2000)
 
-    def start_smart_hotkeys_thread(self, state):
+        hotkey_name = self.hotkey_option_combobox.currentText()
+        rune_option = self.rune_option_combobox.currentText()
+        
+        self.set_hotkey_thread = SetSmartHotkeyThread(hotkey_name, rune_option)
+        self.set_hotkey_thread.status_signal.connect(self.update_status_label)
+        self.set_hotkey_thread.hotkey_set_signal.connect(self.add_smart_hotkey_item)
+        self.set_hotkey_thread.start()
+
+    def update_status_label(self, text, style):
+        self.status_label.setText(text)
+        self.status_label.setStyleSheet(style)
+
+    def add_smart_hotkey_item(self, data):
+        hotkey_item = QListWidgetItem(data["Hotkey"])
+        hotkey_item.setData(Qt.UserRole, data)
+        self.smart_hotkeys_listWidget.addItem(hotkey_item)
+        # If smart hotkeys thread is running, we might need to update its data
+        if self.smart_hotkeys_thread and self.smart_hotkeys_thread.isRunning():
+            self.start_smart_hotkeys_thread(Qt.Checked)
+
+    def start_smart_hotkeys_thread(self, state) -> None:
         if state == Qt.Checked:
-            # Stop existing thread if running
-            if self.smart_hotkeys_thread and self.smart_hotkeys_thread.isRunning():
+            if self.smart_hotkeys_thread:
                 self.smart_hotkeys_thread.stop()
-                if not self.smart_hotkeys_thread.wait(5000):
-                    print("WARNING: SmartHotkeysThread did not stop in time!")
-            self.smart_hotkeys_thread = SmartHotkeysThread(self.smart_hotkeys_listWidget)
+                self.smart_hotkeys_thread.wait(2000)
+
+            # Extract data
+            hotkeys_data = [
+                self.smart_hotkeys_listWidget.item(i).data(Qt.UserRole)
+                for i in range(self.smart_hotkeys_listWidget.count())
+            ]
+            
+            self.smart_hotkeys_thread = SmartHotkeysThread(hotkeys_data)
             self.smart_hotkeys_thread.start()
         else:
             if self.smart_hotkeys_thread:
                 self.smart_hotkeys_thread.stop()
-                if not self.smart_hotkeys_thread.wait(5000):
-                    print("WARNING: SmartHotkeysThread did not stop in time!")
+                self.smart_hotkeys_thread.wait(2000)
                 self.smart_hotkeys_thread = None
+
     def save_settings(self, profile_name) -> None:
         if not profile_name:
             return

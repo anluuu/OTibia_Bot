@@ -49,8 +49,13 @@ class HotkeysTab(QWidget):
         self.remove_button = QPushButton("Remove", self)
         self.remove_button.clicked.connect(self.remove_hotkey)
         
-        # Start thread immediately
-        self.hotkeys_thread = HotkeysThread(self.hotkeys_tableWidget)
+        # Data sync timer
+        self.sync_timer = QTimer(self)
+        self.sync_timer.timeout.connect(self.sync_data_to_thread)
+        self.sync_timer.start(1000) # Sync every second
+
+        # Start thread
+        self.hotkeys_thread = HotkeysThread()
         self.hotkeys_thread.start()
 
         # Layout Arrangement
@@ -58,6 +63,7 @@ class HotkeysTab(QWidget):
         self.layout.addWidget(self.add_button, 1, 0)
         self.layout.addWidget(self.remove_button, 1, 1)
         self.layout.addWidget(self.status_label, 2, 0, 1, 2)
+
 
     def add_hotkey(self):
         """Add a new editable row to the table"""
@@ -204,3 +210,49 @@ class HotkeysTab(QWidget):
             self.status_label.setText(f"Profile '{profile_name}' loaded!")
         except FileNotFoundError:
             self.status_label.setText(f"Profile '{profile_name}' not found.")
+    def get_hotkeys_data(self):
+        hotkey_list = []
+        for row in range(self.hotkeys_tableWidget.rowCount()):
+            # Get hotkey from ComboBox
+            hotkey_combo = self.hotkeys_tableWidget.cellWidget(row, 0)
+            hotkey = hotkey_combo.currentText() if hotkey_combo else "F1"
+            
+            # Get time from LineEdit
+            time_edit = self.hotkeys_tableWidget.cellWidget(row, 1)
+            try:
+                time_value = float(time_edit.text()) if time_edit and time_edit.text() else 2.0
+            except ValueError:
+                time_value = 2.0
+            
+            # Get random from LineEdit
+            random_edit = self.hotkeys_tableWidget.cellWidget(row, 2)
+            try:
+                random_value = float(random_edit.text()) if random_edit and random_edit.text() else 0.5
+            except ValueError:
+                random_value = 0.5
+            
+            # Get active from CheckBox
+            checkbox_widget = self.hotkeys_tableWidget.cellWidget(row, 3)
+            active = False
+            if checkbox_widget:
+                checkbox = checkbox_widget.findChild(QCheckBox)
+                active = checkbox.isChecked() if checkbox else False
+            
+            hotkey_list.append({
+                "Hotkey": hotkey,
+                "Interval": time_value,
+                "Randomize": random_value,
+                "Active": active
+            })
+        return hotkey_list
+
+    def sync_data_to_thread(self):
+        if self.hotkeys_thread:
+            data = self.get_hotkeys_data()
+            self.hotkeys_thread.update_hotkey_data(data)
+
+    def closeEvent(self, event):
+        if self.hotkeys_thread:
+            self.hotkeys_thread.stop()
+            self.hotkeys_thread.wait(2000)
+        event.accept()

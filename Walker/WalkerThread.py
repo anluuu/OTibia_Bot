@@ -15,12 +15,13 @@ class WalkerThread(QThread):
 
     def __init__(self, waypoints):
         super().__init__()
-        print(f"DEBUG: Initializing WalkerThread with {len(waypoints)} waypoints")
         self.last_target_pos = None
         self.waypoints = waypoints
         self.running = True
 
     def run(self):
+        if not self.waypoints:
+            return
         current_wpt = self.find_wpt(self.waypoints)
         timer = 0
         second_timer = 0
@@ -30,7 +31,6 @@ class WalkerThread(QThread):
         previous_pos = (my_x, my_y, my_z)
         while self.running:
             try:
-
                 sleep_value = random.randint(10, 50)
                 QThread.msleep(sleep_value)
                 if not walker_Lock.locked():
@@ -54,19 +54,18 @@ class WalkerThread(QThread):
                     self.discovered_obstacles.clear()
                     timer = 0
                     continue
-                while walker_Lock.locked() and wpt_action != 4: # If attacking and not Luring
-                    print("Walker is locked")
+                while walker_Lock.locked() and wpt_action != 4 and self.running: # If attacking and not Luring
                     QThread.msleep(200)
+                
+                if not self.running: break
+
                 if wpt_action == 0:
                     if wpt_direction == 0:
-                        print("Finding Path")
                         path = calculate_path_astar(my_x, my_y, map_x, map_y, self.discovered_obstacles)
-                        print("Found path ", path)
                         if path:
                             next_step = path[0]
                             self.last_target_pos = (my_x + next_step[0], my_y + next_step[1])
                             walk(0, my_x, my_y, my_z, my_x + next_step[0], my_y + next_step[1], map_z)
-                            print("Walking")
                     else:
                         walk(wpt_direction, my_x, my_y, my_z, map_x, map_y, map_z)
                 elif wpt_action == 1: # Rope
@@ -113,10 +112,8 @@ class WalkerThread(QThread):
                         self.discovered_obstacles.add(self.last_target_pos)
                         self.last_target_pos = None
                     
-                    
             except Exception as e:
-                print("Error", e)
-
+                print("WalkerThread error:", e)
 
     def stop(self):
         self.running = False
@@ -125,190 +122,92 @@ class WalkerThread(QThread):
         x, y, z = read_my_wpt()
         for wpt in range(0, len(waypoints)):
             wpt_data = waypoints[wpt]
+            map_z = wpt_data['Z']
             map_x = wpt_data['X']
             map_y = wpt_data['Y']
-            map_z = wpt_data['Z']
             wpt_direction = wpt_data['Direction']
             if z == map_z and abs(map_x - x) <= 4 and abs(map_y - y) <= 4 and wpt_direction == 0:
                 return wpt
         return 0
 
 
-
-
-
-
-
-
-
-    # Record thread.
 class RecordThread(QThread):
-    wpt_update = pyqtSignal(int, object)
+    request_data_signal = pyqtSignal()
+    wpt_recorded_signal = pyqtSignal(dict)
 
-    def __init__(self, direction_group, action_group, interval=1):
+    def __init__(self, interval=1):
         super().__init__()
         self.running = True
-        self.direction_group = direction_group
-        self.action_group = action_group
         self.interval = interval
-        self.last_recorded_x = None
-        self.last_recorded_y = None
-        self.last_recorded_z = None
+        self.current_action_id = 0
+        self.current_direction_id = 0
+        self.current_direction_text = "Center"
+        self.data_lock = QMutex()
+
+    def update_snapshot(self, action_id, direction_id, direction_text):
+        with QMutexLocker(self.data_lock):
+            self.current_action_id = action_id
+            self.current_direction_id = direction_id
+            self.current_direction_text = direction_text
 
     def run(self):
         x, y, z = read_my_wpt()
         
-        dir_id = self.direction_group.checkedId()
-        dir_text = "Center"
-        btn = self.direction_group.button(dir_id)
-        if btn:
-            dir_text = btn.text()
-            if dir_text == "C": dir_text = "Center"
-            
-        act_id = self.action_group.checkedId()
-        act_text = "Stand"
-        act_btn = self.action_group.button(act_id)
-        if act_btn:
-             act_text = act_btn.text()
+        with QMutexLocker(self.data_lock):
+            act_id = self.current_action_id
+            dir_id = self.current_direction_id
+            dir_text = self.current_direction_text
 
         waypoint_data = {
             "Action": act_id,
             "Direction": dir_id,
-            "X": x,
-            "Y": y,
-            "Z": z
+            "X": x, "Y": y, "Z": z,
+            "Display": dir_text
         }
+        self.wpt_recorded_signal.emit(waypoint_data)
         
-        display_text = "Unknown"
-        if act_id == 0: # Stand
-             display_text = f'Stand: {x} {y} {z} {dir_text}'
-        elif act_id == 4: # Lure
-             display_text = f'Lure: {x} {y} {z}'
-        elif act_id == 1: # Rope
-             display_text = f'Rope: {x} {y} {z}'
-        elif act_id == 2: # Shovel
-             display_text = f'Shovel: {x} {y} {z}'
-        elif act_id == 3: # Ladder
-             display_text = f'Ladder: {x} {y} {z}'
-             
-        waypoint = QListWidgetItem(display_text)
-        waypoint.setData(Qt.UserRole, waypoint_data)
-        self.wpt_update.emit(1, waypoint)
-        
-        # Track last recorded position
-        self.last_recorded_x = x
-        self.last_recorded_y = y
-        self.last_recorded_z = z
+        last_recorded_x, last_recorded_y, last_recorded_z = x, y, z
         old_x, old_y, old_z = x, y, z
+
         while self.running:
             try:
                 x, y, z = read_my_wpt()
                 if z != old_z:  # Stair, hole, etc.
-                    if y > old_y and x == old_x:  # Move South
-                        waypoint_data = {
-                            "Action": 0,
-                            "Direction": 2,  # South index
-                            "X": x,
-                            "Y": y,
-                            "Z": z
-                        }
-                        waypoint = QListWidgetItem(f'Stand: {x} {y} {z} South')
-                        waypoint.setData(Qt.UserRole, waypoint_data)
-                        self.wpt_update.emit(1, waypoint)
-                    if y < old_y and x == old_x:  # Move North
-                        waypoint_data = {
-                            "Action": 0,
-                            "Direction": 1,  # North index
-                            "X": x,
-                            "Y": y,
-                            "Z": z
-                        }
-                        waypoint = QListWidgetItem(f'Stand: {x} {y} {z} North')
-                        waypoint.setData(Qt.UserRole, waypoint_data)
-                        self.wpt_update.emit(1, waypoint)
-                    if y == old_y and x > old_x:  # Move East
-                        waypoint_data = {
-                            "Action": 0,
-                            "Direction": 3,  # East index
-                            "X": x,
-                            "Y": y,
-                            "Z": z
-                        }
-                        waypoint = QListWidgetItem(f'Stand: {x} {y} {z} East')
-                        waypoint.setData(Qt.UserRole, waypoint_data)
-                        self.wpt_update.emit(1, waypoint)
+                    # Determine direction based on movement
+                    new_dir_id = 0
+                    new_dir_text = "Center"
+                    if y > old_y and x == old_x: new_dir_id, new_dir_text = 2, "South"
+                    elif y < old_y and x == old_x: new_dir_id, new_dir_text = 1, "North"
+                    elif y == old_y and x > old_x: new_dir_id, new_dir_text = 3, "East"
+                    elif y == old_y and x < old_x: new_dir_id, new_dir_text = 4, "West"
 
-                    if y == old_y and x < old_x:  # Move West
-                        waypoint_data = {
-                            "Action": 0,
-                            "Direction": 4,  # West index
-                            "X": x,
-                            "Y": y,
-                            "Z": z
-                        }
-                        waypoint = QListWidgetItem(f'Stand: {x} {y} {z} West')
-                        waypoint.setData(Qt.UserRole, waypoint_data)
-                        self.wpt_update.emit(1, waypoint)
+                    if new_dir_id != 0:
+                        self.wpt_recorded_signal.emit({
+                            "Action": 0, "Direction": new_dir_id,
+                            "X": x, "Y": y, "Z": z,
+                            "Display": new_dir_text
+                        })
 
                 if (x != old_x or y != old_y) and z == old_z:
-                    # Check if we should record based on interval
-                    if self.last_recorded_x is None:  # First move (shouldn't happen, but safe)
-                        should_record = True
-                    else:
-                        dist_x = abs(x - self.last_recorded_x)
-                        dist_y = abs(y - self.last_recorded_y)
-                        distance = dist_x + dist_y
-                        should_record = distance >= self.interval
-                    
-                    if should_record:
-                        dir_id = self.direction_group.checkedId()
-                        dir_text = "Center"
-                        btn = self.direction_group.button(dir_id)
-                        if btn:
-                            dir_text = btn.text()
-                            if dir_text == "C": dir_text = "Center"
-                            
-                        act_id = self.action_group.checkedId()
-                        # act_text = "Stand" # Not used in display text logic below if we copy the logic
-                        
-                        waypoint_data = {
-                            "Action": act_id,
-                            "Direction": dir_id,
-                            "X": x,
-                            "Y": y,
-                            "Z": z
-                        }
-                        
-                        display_text = "Unknown"
-                        if act_id == 0: # Stand
-                             display_text = f'Stand: {x} {y} {z} {dir_text}'
-                        elif act_id == 4: # Lure
-                             display_text = f'Lure: {x} {y} {z}'
-                        elif act_id == 1: # Rope
-                             display_text = f'Rope: {x} {y} {z}'
-                        elif act_id == 2: # Shovel
-                             display_text = f'Shovel: {x} {y} {z}'
-                        elif act_id == 3: # Ladder
-                             display_text = f'Ladder: {x} {y} {z}'
+                    dist = abs(x - last_recorded_x) + abs(y - last_recorded_y)
+                    if dist >= self.interval:
+                        with QMutexLocker(self.data_lock):
+                            act_id = self.current_action_id
+                            dir_id = self.current_direction_id
+                            dir_text = self.current_direction_text
 
-                        waypoint = QListWidgetItem(display_text)
-                        waypoint.setData(Qt.UserRole, waypoint_data)
-                        self.wpt_update.emit(1, waypoint)
-                        
-                        # Update last recorded position
-                        self.last_recorded_x = x
-                        self.last_recorded_y = y
-                        self.last_recorded_z = z
+                        self.wpt_recorded_signal.emit({
+                            "Action": act_id, "Direction": dir_id,
+                            "X": x, "Y": y, "Z": z,
+                            "Display": dir_text
+                        })
+                        last_recorded_x, last_recorded_y, last_recorded_z = x, y, z
                 
-                # Always update old position for change detection
                 old_x, old_y, old_z = x, y, z
-                QThread.msleep(10)
-            except RuntimeError:
-                # Widget deleted, stop thread
-                self.running = False
-                break
+                QThread.msleep(100)
             except Exception as e:
-                print(e)
+                print("RecordThread error:", e)
 
     def stop(self):
         self.running = False
+

@@ -219,9 +219,21 @@ class HealingTab(QWidget):
 
     def startHeal_thread(self, state) -> None:
         if state == Qt.Checked:
-            self.heal_thread = HealThread(self.healList_listWidget)
+            # Stop existing thread if running
+            if self.heal_thread:
+                self.heal_thread.stop()
+                self.heal_thread.wait(2000)
+
+            # Extract data while in GUI thread
+            healing_data = [
+                self.healList_listWidget.item(i).data(Qt.UserRole) 
+                for i in range(self.healList_listWidget.count())
+            ]
+            
+            self.heal_thread = HealThread(healing_data)
             self.heal_thread.start()
         else:
             if self.heal_thread:
                 self.heal_thread.stop()
+                self.heal_thread.wait(2000)
                 self.heal_thread = None

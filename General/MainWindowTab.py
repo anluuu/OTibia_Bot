@@ -201,9 +201,10 @@ class MainWindowTab(QWidget):
         if self.targetLootTab_instance is None:
             self.targetLootTab_instance = TargetTab()
             
-        loot_table = None
+        # Get loot data from Looting if available
+        loot_data = None
         if self.lootingTab_instance:
-             loot_table = self.lootingTab_instance.loot_tableWidget
+             loot_data = self.lootingTab_instance.get_loot_data()
 
         # Get blacklist from Walker if available
         blacklist = set()
@@ -217,7 +218,7 @@ class MainWindowTab(QWidget):
             
             # Start Targeting with Loot Table (if looting is checked) and blacklist
             if self.looting_checkbox.isChecked():
-                 self.targetLootTab_instance.start_target_thread(state, loot_table, blacklist)
+                 self.targetLootTab_instance.start_target_thread(state, loot_data, blacklist)
             else:
                  self.targetLootTab_instance.start_target_thread(state, None, blacklist)
         else:
@@ -229,6 +230,7 @@ class MainWindowTab(QWidget):
                 if self.lootingTab_instance is None:
                     self.lootingTab_instance = LootingTab()
                 self.lootingTab_instance.start_loot_thread(Qt.Checked)
+
 
     def toggle_walker(self, state):
         if self.walkerTab_instance is None:
@@ -252,15 +254,15 @@ class MainWindowTab(QWidget):
         if state == Qt.Checked:
             # If Targeting is ON, don't start continuous thread, but update Targeting
             if self.targeting_checkbox.isChecked():
-                 loot_table = self.lootingTab_instance.loot_tableWidget
+                 loot_data = self.lootingTab_instance.get_loot_data()
                  # Get blacklist from Walker for restart
                  blacklist = set()
                  if self.walkerTab_instance and hasattr(self.walkerTab_instance, 'get_blacklist'):
                      blacklist = self.walkerTab_instance.get_blacklist()
-                 # Restart Targeting to pick up new loot table
+                 # Restart Targeting to pick up new loot templates
                  if self.targetLootTab_instance:
                      self.targetLootTab_instance.start_target_thread(Qt.Unchecked)
-                     self.targetLootTab_instance.start_target_thread(Qt.Checked, loot_table, blacklist)
+                     self.targetLootTab_instance.start_target_thread(Qt.Checked, loot_data, blacklist)
             else:
                 # Targeting OFF, start continuous looting
                 if hasattr(self.lootingTab_instance, 'start_loot_thread'):
@@ -277,6 +279,7 @@ class MainWindowTab(QWidget):
                      blacklist = self.walkerTab_instance.get_blacklist()
                  self.targetLootTab_instance.start_target_thread(Qt.Unchecked)
                  self.targetLootTab_instance.start_target_thread(Qt.Checked, None, blacklist)
+
 
     def save_settings(self):
         profile_name = self.profile_lineEdit.text().strip()

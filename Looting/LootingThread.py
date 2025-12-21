@@ -15,9 +15,9 @@ import cv2 as cv
 
 class LootThread(QThread):
 
-    def __init__(self, loot_table, target_state, one_shot=False):
+    def __init__(self, loot_data, target_state, one_shot=False):
         super().__init__()
-        self.loot_table = loot_table
+        self.loot_data = loot_data
         self.running = True
         self.target_state = target_state
         self.state_lock = QMutex()
@@ -93,59 +93,46 @@ class LootThread(QThread):
         resize_factor = 3
         """Load and prepare all item templates"""
         self.item_templates.clear()
-        for row in range(self.loot_table.rowCount()):
-            image_widget = self.loot_table.cellWidget(row, 0)
-            if image_widget:
-                preview_label = image_widget.findChild(QLabel)
-                if preview_label:
-                    image_path = preview_label.property("image_path")
-                    if image_path and os.path.exists(image_path):
-                        action_combo = self.loot_table.cellWidget(row, 1)
-                        if action_combo:
-                            action = action_combo.currentText()
-                            
-                            use_ctrl = False
-                            ctrl_widget = self.loot_table.cellWidget(row, 2)
-                            if ctrl_widget:
-                                from PyQt5.QtWidgets import QCheckBox
-                                ctrl_checkbox = ctrl_widget.findChild(QCheckBox)
-                                if ctrl_checkbox:
-                                    use_ctrl = ctrl_checkbox.isChecked()
+        for entry in self.loot_data:
+            image_path = entry.get("ImagePath")
+            if image_path and os.path.exists(image_path):
+                action = entry.get("Action", "RightClick")
+                use_ctrl = entry.get("UseCtrl", False)
 
-                            templates_list = []
-                            if image_path.lower().endswith('.gif'):
-                                try:
-                                    from PIL import Image, ImageSequence
-                                    import numpy as np
+                templates_list = []
+                if image_path.lower().endswith('.gif'):
+                    try:
+                        from PIL import Image, ImageSequence
+                        import numpy as np
 
-                                    gif = Image.open(image_path)
+                        gif = Image.open(image_path)
 
-                                    for frame in ImageSequence.Iterator(gif):
-                                        frame = np.array(frame.convert('RGB'))
-                                        frame = frame[:22, :]
-                                        opencv_image = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-                                        item = cv.GaussianBlur(opencv_image, (7, 7), 0)
-                                        item = cv.resize(item, None, fx=resize_factor, fy=resize_factor,interpolation=cv.INTER_CUBIC)
-                                        templates_list.append(item)
+                        for frame in ImageSequence.Iterator(gif):
+                            frame = np.array(frame.convert('RGB'))
+                            frame = frame[:22, :]
+                            opencv_image = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+                            item = cv.GaussianBlur(opencv_image, (7, 7), 0)
+                            item = cv.resize(item, None, fx=resize_factor, fy=resize_factor,interpolation=cv.INTER_CUBIC)
+                            templates_list.append(item)
 
-                                except Exception as e:
-                                    print(f"Error loading GIF template: {e}")
-                                    continue
-                            else:
-                                template = cv.imread(image_path, cv.COLOR_BGR2GRAY)
-                                template = cv.cvtColor(template, cv.COLOR_BGR2GRAY)
-                                if template is not None:
-                                    template = template[:22, :]
-                                    item = cv.GaussianBlur(template, (7, 7), 0)
-                                    item = cv.resize(item, None, fx=resize_factor, fy=resize_factor, interpolation=cv.INTER_CUBIC)
-                                    templates_list.append(item)
+                    except Exception as e:
+                        print(f"Error loading GIF template: {e}")
+                        continue
+                else:
+                    template = cv.imread(image_path, cv.IMREAD_GRAYSCALE)
+                    if template is not None:
+                        template = template[:22, :]
+                        item = cv.GaussianBlur(template, (7, 7), 0)
+                        item = cv.resize(item, None, fx=resize_factor, fy=resize_factor, interpolation=cv.INTER_CUBIC)
+                        templates_list.append(item)
 
-                            if templates_list:
-                                self.item_templates[image_path] = {
-                                    'action': action,
-                                    'templates': templates_list,
-                                    'use_ctrl': use_ctrl
-                                }
+                if templates_list:
+                    self.item_templates[image_path] = {
+                        'action': action,
+                        'templates': templates_list,
+                        'use_ctrl': use_ctrl
+                    }
+
 
     def perform_action(self, x, y, action, use_ctrl=False):
         """Perform the specified action at the given coordinates"""

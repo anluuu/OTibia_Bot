@@ -19,28 +19,19 @@ import pytesseract
 
 class TargetThread(QThread):
 
-    def __init__(self, targets, loot_state, attack_key, loot_table=None, blacklist_tiles=None):
+    def __init__(self, targets, loot_state, attack_key, loot_data=None, blacklist_tiles=None):
         super().__init__()
         self.running = True
         self.targets = targets
         self.attack_key = attack_key + 1
         self.loot_state = loot_state
         self.state_lock = QMutex()
-        self.loot_table = loot_table
-        self.looting_thread = None
-        self.discovered_obstacles = set()
-    def __init__(self, targets, loot_state, attack_key, loot_table=None, blacklist_tiles=None):
-        super().__init__()
-        self.running = True
-        self.targets = targets
-        self.attack_key = attack_key + 1
-        self.loot_state = loot_state
-        self.state_lock = QMutex()
-        self.loot_table = loot_table
+        self.loot_data = loot_data
         self.looting_thread = None
         self.discovered_obstacles = set()
         self.last_target_pos = None
         self.blacklist_tiles = blacklist_tiles if blacklist_tiles else set()
+
 
     def run(self):
         my_x, my_y, my_z = read_my_wpt()
@@ -89,7 +80,7 @@ class TargetThread(QThread):
                             dist_x = abs(x - target_x)
                             dist_y = abs(y - target_y)
                             if (target_data['Dist'] >= dist_x and target_data['Dist'] >= dist_y) or target_data['Dist'] == 0:
-                                if self.loot_table:
+                                if self.loot_data:
                                     open_corpse = True
                                 if not walker_Lock.locked():
                                     walker_Lock.acquire()
@@ -143,9 +134,9 @@ class TargetThread(QThread):
                             mouse_function(corpse_x, corpse_y, option=1)
                             QThread.msleep(random.randint(300, 500)) # Small delay to allow container to open
                             
-                            # Start new looting thread if loot table is available
-                            if self.loot_table:
-                                self.looting_thread = LootThread(self.loot_table, self.loot_state, one_shot=True)
+                            # Start new looting thread if loot data is available
+                            if self.loot_data:
+                                self.looting_thread = LootThread(self.loot_data, self.loot_state, one_shot=True)
                                 self.looting_thread.start()
                         if 'Skin' in target_data and target_data['Skin'] > 0:
                             press_hotkey(target_data['Skin'])

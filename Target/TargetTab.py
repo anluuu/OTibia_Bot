@@ -198,10 +198,15 @@ class TargetTab(QWidget):
         except FileNotFoundError:
             self.status_label.setText(f"Profile '{profile_name}' not found.")
 
-    def start_target_thread(self, state, loot_table=None, blacklist=None) -> None:
+    def start_target_thread(self, state, loot_data=None, blacklist=None) -> None:
         self.targeting_enabled = (state == Qt.Checked)
         
         if state == Qt.Checked:
+            # Stop existing thread if running
+            if self.target_thread:
+                self.target_thread.stop()
+                self.target_thread.wait(2000)
+
             targets = [
                 self.targetList_listWidget.item(i).data(Qt.UserRole)
                 for i in range(self.targetList_listWidget.count())
@@ -210,9 +215,11 @@ class TargetTab(QWidget):
             if blacklist is None:
                 blacklist = set()
             
-            self.target_thread = TargetThread(targets, Qt.Unchecked, self.attackKey_comboBox.currentIndex(), loot_table, blacklist)
+            self.target_thread = TargetThread(targets, Qt.Unchecked, self.attackKey_comboBox.currentIndex(), loot_data, blacklist)
             self.target_thread.start()
         else:
             if self.target_thread:
                 self.target_thread.stop()
+                self.target_thread.wait(2000)
                 self.target_thread = None
+
