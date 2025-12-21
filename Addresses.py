@@ -6,6 +6,10 @@ import win32process
 import pytesseract
 
 from Functions.MemoryFunctions import enable_debug_privilege_pywin32
+TITLE_BAR_OFFSET = 35
+# Locks
+walker_Lock = threading.Lock()
+attack_Lock = threading.Lock()
 
 enable_debug_privilege_pywin32()
 # Keystrokes codes
@@ -20,25 +24,6 @@ rParam = [
     0x22, 0x23  # 3, 1
 ]
 
-# Locks
-walker_Lock = threading.Lock()
-attack_Lock = threading.Lock()
-
-# pytesseract
-pytesseract.pytesseract.tesseract_cmd = r"YOUR_PATH_TO_PYTESSERACT/tesseract.exe"
-
-# There is 6 types of values
-# 1 Byte - 1 byte
-# 2 Short - 2 byte
-# 3 Int - 4 bytes
-# 4 Long - 8 bytes
-# 5 Double - Floating point number
-# 6 String - Decoding with UTF-8
-
-# Character Addresses
-my_x_address = None
-my_x_address_offset = None
-my_x_type = 3
 
 my_y_address = None
 my_y_address_offset = None
@@ -89,7 +74,7 @@ proc_id = None
 client_name = None
 square_size = 75
 application_architecture = 32
-collect_threshold = 0.8
+collect_threshold = 0.85
 
 # Coordinates
 screen_x = [0] * 1
@@ -109,63 +94,161 @@ item_list = {}
 
 
 # Your OTS Client
-def load_tibia() -> None:
+def load_tibia(window_title=None, proc_id=None, hwnd=None) -> None:
     global my_x_address, my_x_address_offset, my_y_address, my_y_address_offset, my_z_address, my_z_address_offset,\
         my_stats_address, my_hp_offset, my_hp_max_offset, my_mp_offset, my_mp_max_offset, \
         attack_address, attack_address_offset, target_name_offset, target_x_offset, target_y_offset, target_z_offset, target_hp_offset, \
-        client_name, base_address, game, proc_id, process_handle, game_name, \
+        client_name, base_address, game, process_handle, game_name, \
         square_size, application_architecture, collect_threshold
 
     # Game variables
     square_size = 75 # In pixels
-    application_architecture = 64 # If game 64 - 64Bit 32 - 32 Bit
-    collect_threshold = 0.85
+    application_architecture = 32 # If game 64 - 64Bit 32 - 32 Bit
+    collect_threshold = 0.95
 
-    # Character Addresses
-    my_x_address = 0xCE38F0
+    # Default Values
+    my_x_address = None
+    my_stats_address = None
+    attack_address = None
+    
     my_x_address_offset = []
-
-    my_y_address = 0xCE38Ff
     my_y_address_offset = []
-
-    my_z_address = 0xCE38F8
     my_z_address_offset = []
-
-    my_stats_address = 0x00CE2870
-
-    my_hp_offset = [0X568]
-    my_hp_max_offset = [0X570]
-
-    my_mp_offset = [0x5A0]
-    my_mp_max_offset = [0x5A8]
-
-    # Target Addresses
-    attack_address = 0xCE2878
+    my_hp_offset = []
+    my_hp_max_offset = []
+    my_mp_offset = []
+    my_mp_max_offset = []
     attack_address_offset = []
 
-    target_x_offset = 0x38
+    load_custom_addresses()
 
-    target_y_offset = 0x3C
-
-    target_z_offset = 0x40
-
-    target_hp_offset = 0xE8
-
-    target_name_offset = 0xA8
-
+    # Target Addresses
+    target_x_offset = None
+    target_y_offset = None
+    target_z_offset = None
+    target_hp_offset = None
+    target_name_offset = None
 
     # Game 'n' Client names
-    client_name = "Your client name"
+    if window_title and proc_id and hwnd:
+        # Use provided process info
+        game_name = window_title
+        game = hwnd
+        # proc_id is already set from parameter
+        
+        # Extract client name from window title (take first word or up to first space/parenthesis)
+        client_name = window_title.split()[0] if window_title else "Client"
+    else:
+        # Fallback to old method (hardcoded)
+        client_name = ""
+        game_name = fin_window_name(client_name)
+        game = win32gui.FindWindow(None, game_name)
+        thread_id, proc_id = win32process.GetWindowThreadProcessId(game)
+    
     os.makedirs("Images/" + client_name, exist_ok=True)
-    game_name = fin_window_name(client_name)
+    print(f"Connected to: {game_name}")
 
     # Loading Addresses
-    game = win32gui.FindWindow(None, game_name)
-    proc_id = win32process.GetWindowThreadProcessId(game)
-    proc_id = proc_id[1]
     process_handle = c.windll.kernel32.OpenProcess(0x1F0FFF, False, proc_id)
     modules = win32process.EnumProcessModules(process_handle)
     base_address = modules[0]
+
+
+def load_custom_addresses():
+    global my_x_address, my_x_address_offset, my_y_address, my_y_address_offset, my_z_address, my_z_address_offset,\
+        my_stats_address, my_hp_offset, my_hp_max_offset, my_mp_offset, my_mp_max_offset, \
+        attack_address, attack_address_offset, my_attack_type, my_x_type, my_y_type, my_z_type, my_hp_type, my_mp_type, \
+        target_x_offset, target_y_offset, target_z_offset, target_hp_offset, target_name_offset, \
+        square_size, application_architecture, collect_threshold
+
+    try:
+        with open("Save/Settings/addresses.json", "r") as f:
+            import json
+            data = json.load(f)
+            
+            # Load Game Config
+            config = data.get("game_config", {})
+            if "square_size" in config and config["square_size"]:
+                square_size = int(config["square_size"])
+            if "collect_threshold" in config and config["collect_threshold"]:
+                collect_threshold = float(config["collect_threshold"])
+            if "architecture" in config:
+                arch_str = config["architecture"]
+                if "64" in arch_str:
+                    application_architecture = 64
+                else:
+                    application_architecture = 32
+
+            # Map JSON keys to global variables
+            mappings = [
+                ("my_x", "my_x_address", "my_x_address_offset", "my_x_type"),
+                ("my_y", "my_y_address", "my_y_address_offset", "my_y_type"),
+                ("my_z", "my_z_address", "my_z_address_offset", "my_z_type"),
+                ("attack", "attack_address", "attack_address_offset", "my_attack_type"),
+                ("my_hp", "my_stats_address", "my_hp_offset", "my_hp_type"),
+                ("my_hp_max", None, "my_hp_max_offset", None),
+                ("my_mp", None, "my_mp_offset", "my_mp_type"),
+                ("my_mp_max", None, "my_mp_max_offset", None),
+                # Target Offsets
+                ("target_x", None, "target_x_offset", "target_x_type"),
+                ("target_y", None, "target_y_offset", "target_y_type"),
+                ("target_z", None, "target_z_offset", "target_z_type"),
+                ("target_hp", None, "target_hp_offset", "target_hp_type"),
+                ("target_name", None, "target_name_offset", "target_name_type"),
+            ]
+            
+            type_map = {"Byte": 1, "Short": 2, "Int": 3, "Long": 4, "Double": 5, "String": 6, "Unicode String": 7}
+
+            for key, addr_var, offset_var, type_var in mappings:
+                if key in data:
+                    entry = data[key]
+                    
+                    # Set Address
+                    if addr_var:
+                        val = parse_hex(entry.get("address"))
+                        if val is not None:
+                            globals()[addr_var] = val
+                    
+                    # Set Offset
+                    if offset_var:
+                        raw_offset = entry.get("offset", "")
+                        parsed_offsets = parse_offsets(raw_offset)
+                        
+                        if parsed_offsets:
+                            if key.startswith("target_"):
+                                globals()[offset_var] = parsed_offsets[0]
+                            else:
+                                globals()[offset_var] = parsed_offsets
+                        elif raw_offset.strip() == "" and not key.startswith("target_"):
+                             globals()[offset_var] = []
+
+                    # Set Type
+                    if type_var:
+                        type_str = entry.get("type")
+                        if type_str in type_map:
+                            globals()[type_var] = type_map[type_str]
+
+            print("Loaded dynamic addresses")
+    except Exception as e:
+        print(f"Using default addresses. Error loading dynamic: {e}")
+
+# Helper to parse hex string
+def parse_hex(val):
+    if isinstance(val, str) and val.strip():
+        try:
+            return int(val.strip(), 16)
+        except ValueError:
+            pass
+    return None
+
+# Helper to parse offsets
+def parse_offsets(val):
+    if isinstance(val, str) and val.strip():
+        try:
+            return [int(x.strip(), 16) for x in val.split(',') if x.strip()]
+        except ValueError:
+            pass
+    return []
 
 
 def fin_window_name(name) -> str:
@@ -173,7 +256,7 @@ def fin_window_name(name) -> str:
 
     def enum_window_callback(hwnd, _):
         window_text = win32gui.GetWindowText(hwnd)
-        if name in window_text and "EasyBot" not in window_text:
+        if name in window_text and "Easy Bot" not in window_text:
             matching_titles.append(window_text)
 
     win32gui.EnumWindows(enum_window_callback, None)

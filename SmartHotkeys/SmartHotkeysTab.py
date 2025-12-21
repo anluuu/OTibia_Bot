@@ -1,10 +1,11 @@
 from PyQt5.QtWidgets import (
     QWidget, QGridLayout, QListWidget, QComboBox, QPushButton,
-    QLabel, QCheckBox
+    QLabel, QCheckBox, QListWidgetItem
 )
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
-from Functions.GeneralFunctions import delete_item
+import json
+from Functions.GeneralFunctions import delete_item, manage_profile
 from SmartHotkeys.SmartHotkeysThread import SmartHotkeysThread, SetSmartHotkeyThread
 
 
@@ -49,14 +50,8 @@ class SmartHotkeysTab(QWidget):
         # Buttons
         self.coordinates_button = QPushButton("Coordinates", self)
 
-        # Checkbox: Start Smart Hotkeys
-        self.start_hotkeys_checkbox = QCheckBox("Start Smart Hotkeys", self)
-
         # Button functions
         self.coordinates_button.clicked.connect(self.start_set_hotkey_thread)
-
-        # Checkbox function
-        self.start_hotkeys_checkbox.stateChanged.connect(self.start_smart_hotkeys_thread)
 
         # Add Widgets to Layout
         self.layout.addWidget(self.smart_hotkeys_listWidget, 0, 0, 1, 3)
@@ -64,11 +59,8 @@ class SmartHotkeysTab(QWidget):
         self.layout.addWidget(self.hotkey_option_combobox, 1, 1)
         self.layout.addWidget(self.coordinates_button, 1, 2)
 
-        # Place the checkbox in row 2, col 0..1
-        self.layout.addWidget(self.start_hotkeys_checkbox, 2, 0, 1, 2)
-
-        # Finally, add the status label in row 3 (spanning all columns)
-        self.layout.addWidget(self.status_label, 3, 0, 1, 3)
+        # Finally, add the status label in row 2 (spanning all columns)
+        self.layout.addWidget(self.status_label, 2, 0, 1, 3)
 
     def start_set_hotkey_thread(self):
         self.set_smart_hotkey_thread = SetSmartHotkeyThread(self.smart_hotkeys_listWidget, self.hotkey_option_combobox,
@@ -77,10 +69,50 @@ class SmartHotkeysTab(QWidget):
 
     def start_smart_hotkeys_thread(self, state):
         if state == Qt.Checked:
-            if not self.smart_hotkeys_thread:
-                self.smart_hotkeys_thread = SmartHotkeysThread(self.smart_hotkeys_listWidget)
-                self.smart_hotkeys_thread.start()
+            # Stop existing thread if running
+            if self.smart_hotkeys_thread and self.smart_hotkeys_thread.isRunning():
+                self.smart_hotkeys_thread.stop()
+                if not self.smart_hotkeys_thread.wait(5000):
+                    print("WARNING: SmartHotkeysThread did not stop in time!")
+            self.smart_hotkeys_thread = SmartHotkeysThread(self.smart_hotkeys_listWidget)
+            self.smart_hotkeys_thread.start()
         else:
             if self.smart_hotkeys_thread:
                 self.smart_hotkeys_thread.stop()
+                if not self.smart_hotkeys_thread.wait(5000):
+                    print("WARNING: SmartHotkeysThread did not stop in time!")
                 self.smart_hotkeys_thread = None
+    def save_settings(self, profile_name) -> None:
+        if not profile_name:
+            return
+        hotkey_list = []
+        for i in range(self.smart_hotkeys_listWidget.count()):
+            item = self.smart_hotkeys_listWidget.item(i)
+            hotkey_list.append({
+                "Name": item.text(),
+                "Data": item.data(Qt.UserRole)
+            })
+            
+        data_to_save = {"smart_hotkeys": hotkey_list}
+
+        if manage_profile("save", "Save/SmartHotkeys", profile_name, data_to_save):
+            self.status_label.setStyleSheet("color: green; font-weight: bold;")
+            self.status_label.setText(f"Profile '{profile_name}' has been saved!")
+
+    def load_settings(self, profile_name) -> None:
+        filename = f"Save/SmartHotkeys/{profile_name}.json"
+        
+        try:
+            with open(filename, "r") as f:
+                loaded_data = json.load(f)
+
+            self.smart_hotkeys_listWidget.clear()
+            for hotkey_entry in loaded_data.get("smart_hotkeys", []):
+                item = QListWidgetItem(hotkey_entry["Name"])
+                item.setData(Qt.UserRole, hotkey_entry["Data"])
+                self.smart_hotkeys_listWidget.addItem(item)
+
+            self.status_label.setStyleSheet("color: green; font-weight: bold;")
+            self.status_label.setText(f"Profile '{profile_name}' loaded successfully!")
+        except FileNotFoundError:
+            self.status_label.setText(f"Profile '{profile_name}' not found.")

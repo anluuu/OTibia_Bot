@@ -39,13 +39,13 @@ def mouse_function(x_source, y_source, x_dest=0, y_dest=0, option=0) ->None:
 
 def manage_collect(x, y, action) -> None:
     if action > 0:
-        mouse_function(x + Addresses.screen_x[0], y + Addresses.screen_y[0], Addresses.coordinates_x[action], Addresses.coordinates_y[action], option=3)
+        mouse_function(x, y, Addresses.coordinates_x[action], Addresses.coordinates_y[action], option=3)
     elif action == 0:
-        mouse_function(x + Addresses.screen_x[0], y + Addresses.screen_y[0], Addresses.coordinates_x[0], Addresses.coordinates_y[0], option=4)
+        mouse_function(x, y, Addresses.coordinates_x[0], Addresses.coordinates_y[0], option=4)
     elif action == -1:
-        mouse_function(x + Addresses.screen_x[0], y + Addresses.screen_y[0], option=1)
+        mouse_function(x, y, option=1)
     elif action == -2:
-        mouse_function(x + Addresses.screen_x[0], y + Addresses.screen_y[0], option=2)
-        mouse_function(x + Addresses.screen_x[0], y + Addresses.screen_y[0], option=2)
+        mouse_function(x, y, option=2)
+        mouse_function(x, y, option=2)
     elif action == -3:
-        mouse_function(x + Addresses.screen_x[0], y + Addresses.screen_y[0], Addresses.coordinates_x[0], Addresses.coordinates_y[0], option=5)
+        mouse_function(x, y, Addresses.coordinates_x[0], Addresses.coordinates_y[0], option=5)

@@ -54,7 +54,7 @@ def merge_close_points(points, distance_threshold):
 
 class WindowCapture:
     def __init__(self, w, h, x, y):
-        window_name = Addresses.game_name + " - EasyBot"
+        window_name = Addresses.game_name
         self.hwnd = win32gui.FindWindow(None, window_name)
         self.w = w
         self.h = h

@@ -4,6 +4,8 @@ from PyQt5.QtWidgets import (
     QGridLayout, QVBoxLayout, QHBoxLayout, QGroupBox, QListWidgetItem, QLabel
 )
 from PyQt5.QtGui import QIcon
+import json
+from Functions.GeneralFunctions import manage_profile
 from Training.TrainingThread import TrainingThread, ClickThread, SetThread, FishingThread
 
 
@@ -198,6 +200,59 @@ class TrainingTab(QWidget):
                 self.fishing_thread.stop()
                 self.fishing_thread = None
 
+
+    def save_settings(self, profile_name) -> None:
+        if not profile_name:
+            return
+        
+        burn_mana_list = []
+        for i in range(self.burn_mana_list_widget.count()):
+            item = self.burn_mana_list_widget.item(i)
+            burn_mana_list.append({
+                "Name": item.text(),
+                "Data": item.data(Qt.UserRole)
+            })
+            
+        click_key_settings = {
+            "Timer": self.timer_line_edit.text(),
+            "Key": self.key_list_combobox.currentText()
+        }
+
+        data_to_save = {
+            "burn_mana": burn_mana_list,
+            "click_key": click_key_settings
+        }
+
+        if manage_profile("save", "Save/Training", profile_name, data_to_save):
+            self.status_label.setStyleSheet("color: green; font-weight: bold;")
+            self.status_label.setText(f"Profile '{profile_name}' has been saved!")
+
+    def load_settings(self, profile_name) -> None:
+        filename = f"Save/Training/{profile_name}.json"
+        
+        try:
+            with open(filename, "r") as f:
+                loaded_data = json.load(f)
+
+            # Load Burn Mana List
+            self.burn_mana_list_widget.clear()
+            for burn_data in loaded_data.get("burn_mana", []):
+                item = QListWidgetItem(burn_data["Name"])
+                item.setData(Qt.UserRole, burn_data["Data"])
+                self.burn_mana_list_widget.addItem(item)
+
+            # Load Click Key Settings
+            click_settings = loaded_data.get("click_key", {})
+            self.timer_line_edit.setText(click_settings.get("Timer", ""))
+            key = click_settings.get("Key", "")
+            index = self.key_list_combobox.findText(key)
+            if index != -1:
+                self.key_list_combobox.setCurrentIndex(index)
+
+            self.status_label.setStyleSheet("color: green; font-weight: bold;")
+            self.status_label.setText(f"Profile '{profile_name}' loaded successfully!")
+        except FileNotFoundError:
+            self.status_label.setText(f"Profile '{profile_name}' not found.")
 
     def startSet_thread(self, index) -> None:
         self.set_thread = SetThread(index, self.status_label)
