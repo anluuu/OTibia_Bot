@@ -27,3 +27,5 @@ var/
 venv
 nul
 .claude/
+debug_battlelist.png
+debug_battlelist_thresh.png
