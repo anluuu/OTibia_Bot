@@ -41,6 +41,7 @@ class TargetTab(QWidget):
         self.attackKey_comboBox = QComboBox(self)
         self.attackKey_comboBox.addItems(f'F{i}' for i in range(1, 13))
         self.attackKey_comboBox.addItem("OCR Battle List")
+        self.attackKey_comboBox.addItem("Memory Scan")
         self.skin_comboBox = QComboBox(self)
         self.skin_comboBox.addItem("No Action")
         self.skin_comboBox.addItems(f'F{i}' for i in range(1, 13))

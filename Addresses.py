@@ -64,6 +64,21 @@ target_hp_type = 1
 target_name_offset = None
 target_name_type = 6
 
+# Creature Scanning Addresses (for memory-based targeting)
+creature_hashmap_address = None  # m_knownCreatures hash map
+
+# Creature Structure Offsets
+CREATURE_OFFSET_POSITION_X = 0x10
+CREATURE_OFFSET_POSITION_Y = 0x14
+CREATURE_OFFSET_POSITION_Z = 0x18
+CREATURE_OFFSET_ID = 0x34
+CREATURE_OFFSET_NAME = 0x50
+CREATURE_OFFSET_HP_PERCENT = 0x80
+
+# Creature Vtables (for identifying creature objects in memory)
+CREATURE_VTABLE_MONSTER = 0x013FA104
+CREATURE_VTABLE_PLAYER = 0x013F976C
+CREATURE_VTABLE_NPC = 0x013FA1D4
 
 # Game Variables
 game_name = None
@@ -160,7 +175,7 @@ def load_custom_addresses():
         my_stats_address, my_hp_offset, my_hp_max_offset, my_mp_offset, my_mp_max_offset, \
         attack_address, attack_address_offset, my_attack_type, my_x_type, my_y_type, my_z_type, my_hp_type, my_mp_type, \
         target_x_offset, target_y_offset, target_z_offset, target_hp_offset, target_name_offset, \
-        square_size, application_architecture, collect_threshold
+        square_size, application_architecture, collect_threshold, creature_hashmap_address
 
     try:
         with open("Save/Settings/addresses.json", "r") as f:
@@ -196,6 +211,8 @@ def load_custom_addresses():
                 ("target_z", None, "target_z_offset", "target_z_type"),
                 ("target_hp", None, "target_hp_offset", "target_hp_type"),
                 ("target_name", None, "target_name_offset", "target_name_type"),
+                # Creature Scanning
+                ("creature_hashmap", "creature_hashmap_address", None, None),
             ]
             
             type_map = {"Byte": 1, "Short": 2, "Int": 3, "Long": 4, "Double": 5, "String": 6, "Unicode String": 7}

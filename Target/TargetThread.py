@@ -47,9 +47,13 @@ class TargetThread(QThread):
                     self.discovered_obstacles.clear()
                     stuck_timer = 0
                     self.last_target_pos = None
-                    
+
+                    print(f"[DEBUG] No target, attack_key={self.attack_key}")
                     if self.attack_key == 13: # OCR Battle List Mode
+                        print("[DEBUG] Calling OCR Battle List scan...")
                         self.scan_and_click_battle_list_ocr()
+                    elif self.attack_key == 14: # Memory Scan Mode
+                        self.scan_and_click_memory()
                     else:
                         press_hotkey(self.attack_key)
                         
@@ -164,26 +168,48 @@ class TargetThread(QThread):
         try:
             bx, by = Addresses.battle_x[0], Addresses.battle_y[0]
             bw, bh = Addresses.screen_width[1], Addresses.screen_height[1]
-            
+
+            print(f"[DEBUG OCR] Battle list coords: ({bx},{by}) to ({bw},{bh})")
+
             if bh <= by or bw <= bx:
+                print(f"[DEBUG OCR] Invalid coords, returning early")
                 return
 
             width = bw - bx
             height = bh - by
+            print(f"[DEBUG OCR] Capture size: {width}x{height}")
 
             # Capture Battle List region
             capture = WindowCapture(width, height, bx, by)
             screenshot = capture.get_screenshot()
-            
-            # Preprocess for OCR
+            print(f"[DEBUG OCR] Screenshot shape: {screenshot.shape}")
+
+            # Save debug screenshot (only once per session)
+            if not hasattr(self, '_debug_saved'):
+                cv.imwrite("debug_battlelist.png", screenshot)
+                print("[DEBUG OCR] Saved debug_battlelist.png")
+                self._debug_saved = True
+
+            # Preprocess for OCR - scale up for better accuracy
             gray = cv.cvtColor(screenshot, cv.COLOR_BGR2GRAY)
-            # Thresholding to isolate text
-            _, thresh = cv.threshold(gray, 150, 255, cv.THRESH_BINARY_INV)
-            
+            # Scale up 2x for better OCR accuracy
+            scaled = cv.resize(gray, None, fx=2, fy=2, interpolation=cv.INTER_CUBIC)
+            # Thresholding - use BINARY (not INV) since text is light on dark background
+            _, thresh = cv.threshold(scaled, 100, 255, cv.THRESH_BINARY)
+
+            # Save processed image for debugging (only once)
+            if not hasattr(self, '_debug_thresh_saved'):
+                cv.imwrite("debug_battlelist_thresh.png", thresh)
+                print("[DEBUG OCR] Saved debug_battlelist_thresh.png")
+                self._debug_thresh_saved = True
+
             # Run OCR to get strings and their coordinates
-            data = pytesseract.image_to_data(thresh, output_type=Output.DICT)
-            
+            # Use PSM 11 (sparse text) for better individual word detection
+            custom_config = r'--oem 3 --psm 11'
+            data = pytesseract.image_to_data(thresh, output_type=Output.DICT, config=custom_config)
+
             n_boxes = len(data['text'])
+            print(f"[DEBUG OCR] Found {n_boxes} text boxes, texts: {[t for t in data['text'] if t.strip()]}")
             
             for i in range(n_boxes):
                 text = data['text'][i].strip()
@@ -200,21 +226,89 @@ class TargetThread(QThread):
                         break
                 
                 if should_click:
-                    # Calculate center of the text box
-                    x = data['left'][i]
-                    y = data['top'][i]
-                    w = data['width'][i]
-                    h = data['height'][i]
-                    
+                    # Calculate center of the text box (divide by 2 since we scaled the image 2x)
+                    x = data['left'][i] // 2
+                    y = data['top'][i] // 2
+                    w = data['width'][i] // 2
+                    h = data['height'][i] // 2
+
                     click_x = bx + x + (w // 2)
                     click_y = by + y + (h // 2) - Addresses.TITLE_BAR_OFFSET
-                    
+
                     print(f"OCR Match! Clicking '{text}' at ({click_x}, {click_y})")
                     mouse_function(click_x, click_y, option=2)
                     return # Exit after one click to let the targeting status update
-                    
+
         except Exception as e:
             print(f"Error in scan_and_click_battle_list_ocr: {e}")
+
+    def scan_and_click_memory(self):
+        """
+        Scan memory for creatures matching target names and attack via memory write.
+        Uses vtable-based creature scanning and direct memory targeting.
+        """
+        try:
+            # Get target names from the target list
+            target_names = [target['Name'] for target in self.targets]
+            if not target_names:
+                return
+
+            # Find creatures matching target names
+            from Functions.MemoryFunctions import get_creatures_by_name, set_attack_target
+            creatures = get_creatures_by_name(target_names, same_floor=True)
+
+            if not creatures:
+                return
+
+            # Get the closest creature (already sorted by distance)
+            creature = creatures[0]
+
+            print(f"Memory Scan: Found '{creature['name']}' (ID: {creature['id']}) at ({creature['x']}, {creature['y']}), addr: 0x{creature['address']:08X}")
+
+            # Get screen position for click
+            my_x, my_y, my_z = read_my_wpt()
+            if my_x is None:
+                return
+            delta_x = creature["x"] - my_x
+            delta_y = creature["y"] - my_y
+
+            # Check if creature is on screen
+            if abs(delta_x) > 7 or abs(delta_y) > 5:
+                print(f"Memory Scan: Creature too far from screen center")
+                return
+
+            screen_creature_x = coordinates_x[0] + delta_x * Addresses.square_size
+            screen_creature_y = coordinates_y[0] + delta_y * Addresses.square_size
+
+            # Use Alt+Click to attack the creature at calculated screen position
+            print(f"Memory Scan: Alt+Click at screen ({screen_creature_x}, {screen_creature_y})")
+            mouse_function(screen_creature_x, screen_creature_y, option=6)
+
+            # Verify
+            QThread.msleep(150)
+            new_target_id = read_targeting_status()
+            if new_target_id != 0:
+                print(f"Memory Scan: Attack confirmed! target_id={new_target_id}")
+            else:
+                print(f"Memory Scan: Click sent, waiting for target...")
+            return
+
+            # Old fallback code below (not reached)
+            if False:
+                print(f"Memory Scan: Failed to set target via memory, trying click fallback...")
+                # Fallback to click method
+                my_x, my_y, my_z = read_my_wpt()
+                if my_x is None:
+                    return
+                delta_x = creature["x"] - my_x
+                delta_y = creature["y"] - my_y
+                if abs(delta_x) <= 7 and abs(delta_y) <= 5:
+                    screen_creature_x = coordinates_x[0] + delta_x * Addresses.square_size
+                    screen_creature_y = coordinates_y[0] + delta_y * Addresses.square_size
+                    mouse_function(screen_creature_x, screen_creature_y, option=6)
+
+        except Exception as e:
+            print(f"Error in scan_and_click_memory: {e}")
 
     def stop(self):
         self.running = False

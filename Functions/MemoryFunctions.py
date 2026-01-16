@@ -19,6 +19,32 @@ class MEMORY_BASIC_INFORMATION(c.Structure):
 
 
 
+# Writes a 4-byte value to memory
+def write_memory_address(address_write, value):
+    """Write a 4-byte integer to the specified address (relative to base)."""
+    try:
+        address = c.c_void_p(Addresses.base_address + address_write)
+        buffer = c.c_uint(value)
+        bytes_written = c.c_size_t()
+        result = c.windll.kernel32.WriteProcessMemory(
+            Addresses.process_handle, address, c.byref(buffer), 4, c.byref(bytes_written)
+        )
+        return result != 0
+    except Exception as e:
+        print(f'Write Memory Exception: {e}')
+        return False
+
+
+def set_attack_target(creature_address):
+    """
+    Set the attack target by writing creature pointer to attack address.
+    creature_address should be the absolute address of the creature object.
+    """
+    if not Addresses.attack_address:
+        return False
+    return write_memory_address(Addresses.attack_address, creature_address)
+
+
 # Reads value from memory
 def read_memory_address(address_read, offsets, option):
     try:
@@ -227,3 +253,288 @@ def enable_debug_privilege_pywin32():
     except Exception as e:
         print("Error:", e)
         return False
+
+
+# =============================================================================
+# CREATURE SCANNING FUNCTIONS (for memory-based targeting)
+# =============================================================================
+
+def read_uint_at(address):
+    """Read a 4-byte unsigned integer at an absolute address."""
+    try:
+        buffer = c.create_string_buffer(4)
+        result = c.windll.kernel32.ReadProcessMemory(
+            Addresses.process_handle, c.c_void_p(address), buffer, 4, c.byref(c.c_size_t())
+        )
+        if result:
+            return c.cast(buffer, c.POINTER(c.c_uint)).contents.value
+        return None
+    except:
+        return None
+
+
+def read_byte_at(address):
+    """Read a single byte at an absolute address."""
+    try:
+        buffer = c.create_string_buffer(1)
+        result = c.windll.kernel32.ReadProcessMemory(
+            Addresses.process_handle, c.c_void_p(address), buffer, 1, c.byref(c.c_size_t())
+        )
+        if result:
+            return c.cast(buffer, c.POINTER(c.c_ubyte)).contents.value
+        return None
+    except:
+        return None
+
+
+def read_bytes_at(address, size):
+    """Read raw bytes at an absolute address."""
+    try:
+        buffer = c.create_string_buffer(size)
+        result = c.windll.kernel32.ReadProcessMemory(
+            Addresses.process_handle, c.c_void_p(address), buffer, size, c.byref(c.c_size_t())
+        )
+        if result:
+            return buffer.raw
+        return None
+    except:
+        return None
+
+
+def read_msvc_string(address, max_len=64):
+    """
+    Read MSVC std::string from memory.
+
+    MSVC std::string layout:
+      +0x00: union { char buf[16]; char* ptr; }  - inline buffer or heap pointer
+      +0x10: size_t size
+      +0x14: size_t capacity
+
+    If capacity < 16, string is stored inline in the first 16 bytes.
+    Otherwise, first 4 bytes are a pointer to heap-allocated string.
+    """
+    try:
+        size = read_uint_at(address + 0x10)
+        capacity = read_uint_at(address + 0x14)
+
+        if size is None or capacity is None:
+            return None
+        if size == 0 or size > max_len:
+            return None
+
+        if capacity < 16:
+            # String is stored inline
+            data = read_bytes_at(address, size)
+        else:
+            # String is on heap, first 4 bytes are pointer
+            ptr = read_uint_at(address)
+            if ptr is None or ptr < 0x10000000 or ptr > 0x60000000:
+                return None
+            data = read_bytes_at(ptr, size)
+
+        if not data:
+            return None
+
+        text = data.decode('utf-8', errors='replace').rstrip('\x00')
+        # Validate it's a reasonable string
+        if text and all(c.isprintable() or c in ' \t\n' for c in text):
+            return text
+        return None
+    except:
+        return None
+
+
+def read_creature_at(creature_ptr):
+    """
+    Read creature data from a memory pointer.
+
+    Returns dict with creature info or None if invalid.
+    """
+    if not creature_ptr or creature_ptr < 0x10000000 or creature_ptr > 0x60000000:
+        return None
+
+    try:
+        # Read vtable to verify it's a creature
+        vtable = read_uint_at(creature_ptr)
+        valid_vtables = [
+            Addresses.CREATURE_VTABLE_MONSTER,
+            Addresses.CREATURE_VTABLE_PLAYER,
+            Addresses.CREATURE_VTABLE_NPC
+        ]
+        if vtable not in valid_vtables:
+            return None
+
+        # Read position
+        x = read_uint_at(creature_ptr + Addresses.CREATURE_OFFSET_POSITION_X)
+        y = read_uint_at(creature_ptr + Addresses.CREATURE_OFFSET_POSITION_Y)
+        z_raw = read_uint_at(creature_ptr + Addresses.CREATURE_OFFSET_POSITION_Z)
+
+        if x is None or y is None or z_raw is None:
+            return None
+
+        z = z_raw & 0xFF
+
+        # Validate position
+        if not (100 <= x <= 65000 and 100 <= y <= 65000 and 0 <= z <= 15):
+            return None
+
+        # Read creature ID
+        creature_id = read_uint_at(creature_ptr + Addresses.CREATURE_OFFSET_ID)
+        if not creature_id:
+            return None
+
+        # Read name
+        name = read_msvc_string(creature_ptr + Addresses.CREATURE_OFFSET_NAME)
+        if not name:
+            return None
+
+        # Read HP percent
+        hp_percent = read_byte_at(creature_ptr + Addresses.CREATURE_OFFSET_HP_PERCENT)
+        if hp_percent is None or hp_percent > 100:
+            hp_percent = 100
+
+        # Determine type
+        if vtable == Addresses.CREATURE_VTABLE_PLAYER:
+            creature_type = "player"
+        elif vtable == Addresses.CREATURE_VTABLE_NPC:
+            creature_type = "npc"
+        else:
+            creature_type = "monster"
+
+        return {
+            "address": creature_ptr,
+            "id": creature_id,
+            "name": name,
+            "x": x,
+            "y": y,
+            "z": z,
+            "hp_percent": hp_percent,
+            "type": creature_type
+        }
+    except Exception as e:
+        return None
+
+
+def scan_creatures_vtable():
+    """
+    Scan memory for creatures by looking for vtable patterns.
+    This is slower but doesn't require hash map address.
+
+    Returns list of creature dicts.
+    """
+    creatures = []
+    vtables = [
+        Addresses.CREATURE_VTABLE_MONSTER,
+        Addresses.CREATURE_VTABLE_PLAYER,
+        Addresses.CREATURE_VTABLE_NPC
+    ]
+
+    try:
+        current_address = 0x10000000
+        max_address = 0x50000000
+        mbi = MEMORY_BASIC_INFORMATION()
+
+        while current_address < max_address:
+            if not c.windll.kernel32.VirtualQueryEx(
+                Addresses.process_handle, c.c_void_p(current_address),
+                c.byref(mbi), c.sizeof(mbi)
+            ):
+                break
+
+            # Check if region is readable
+            if mbi.State == 0x1000 and mbi.Protect in (0x04, 0x02, 0x20, 0x40):
+                region_size = mbi.RegionSize
+                if region_size < 0x1000000:  # Skip regions > 16MB
+                    buffer = c.create_string_buffer(region_size)
+                    bytes_read = c.c_size_t()
+
+                    if c.windll.kernel32.ReadProcessMemory(
+                        Addresses.process_handle, mbi.BaseAddress,
+                        buffer, region_size, c.byref(bytes_read)
+                    ):
+                        data = buffer.raw[:bytes_read.value]
+
+                        for vtable in vtables:
+                            vtable_bytes = struct.pack('<I', vtable)
+                            idx = 0
+                            while True:
+                                idx = data.find(vtable_bytes, idx)
+                                if idx == -1:
+                                    break
+
+                                addr = current_address + idx
+                                creature = read_creature_at(addr)
+                                if creature:
+                                    # Avoid duplicates by ID
+                                    if not any(c["id"] == creature["id"] for c in creatures):
+                                        creatures.append(creature)
+
+                                idx += 4
+
+            current_address += mbi.RegionSize
+            if current_address <= mbi.BaseAddress:
+                current_address = mbi.BaseAddress + 0x1000
+
+    except Exception as e:
+        print(f"Error scanning creatures: {e}")
+
+    return creatures
+
+
+def scan_creatures():
+    """
+    Scan for all nearby creatures.
+    Uses vtable scanning method.
+
+    Returns list of creature dicts with: address, id, name, x, y, z, hp_percent, type
+    """
+    return scan_creatures_vtable()
+
+
+def get_creatures_by_name(target_names, same_floor=True):
+    """
+    Find creatures matching any of the target names.
+
+    Args:
+        target_names: List of creature names to search for (case-insensitive)
+        same_floor: If True, only return creatures on the same floor as player
+
+    Returns:
+        List of matching creature dicts, sorted by distance to player
+    """
+    creatures = scan_creatures()
+
+    if not creatures:
+        return []
+
+    # Get player position
+    my_x, my_y, my_z = read_my_wpt()
+    if my_x is None:
+        return []
+
+    # Normalize target names
+    target_names_lower = [name.lower() for name in target_names]
+
+    # Filter creatures
+    matches = []
+    for creature in creatures:
+        # Skip dead creatures
+        if creature["hp_percent"] == 0:
+            continue
+
+        # Check floor
+        if same_floor and creature["z"] != my_z:
+            continue
+
+        # Check name match (or wildcard *)
+        creature_name_lower = creature["name"].lower()
+        if "*" in target_names or creature_name_lower in target_names_lower:
+            # Calculate distance
+            dist = abs(creature["x"] - my_x) + abs(creature["y"] - my_y)
+            creature["distance"] = dist
+            matches.append(creature)
+
+    # Sort by distance
+    matches.sort(key=lambda c: c["distance"])
+
+    return matches
