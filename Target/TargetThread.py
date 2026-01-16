@@ -48,12 +48,8 @@ class TargetThread(QThread):
                     stuck_timer = 0
                     self.last_target_pos = None
 
-                    print(f"[DEBUG] No target, attack_key={self.attack_key}")
                     if self.attack_key == 13: # OCR Battle List Mode
-                        print("[DEBUG] Calling OCR Battle List scan...")
                         self.scan_and_click_battle_list_ocr()
-                    elif self.attack_key == 14: # Memory Scan Mode
-                        self.scan_and_click_memory()
                     else:
                         press_hotkey(self.attack_key)
                         
@@ -241,74 +237,6 @@ class TargetThread(QThread):
 
         except Exception as e:
             print(f"Error in scan_and_click_battle_list_ocr: {e}")
-
-    def scan_and_click_memory(self):
-        """
-        Scan memory for creatures matching target names and attack via memory write.
-        Uses vtable-based creature scanning and direct memory targeting.
-        """
-        try:
-            # Get target names from the target list
-            target_names = [target['Name'] for target in self.targets]
-            if not target_names:
-                return
-
-            # Find creatures matching target names
-            from Functions.MemoryFunctions import get_creatures_by_name, set_attack_target
-            creatures = get_creatures_by_name(target_names, same_floor=True)
-
-            if not creatures:
-                return
-
-            # Get the closest creature (already sorted by distance)
-            creature = creatures[0]
-
-            print(f"Memory Scan: Found '{creature['name']}' (ID: {creature['id']}) at ({creature['x']}, {creature['y']}), addr: 0x{creature['address']:08X}")
-
-            # Get screen position for click
-            my_x, my_y, my_z = read_my_wpt()
-            if my_x is None:
-                return
-            delta_x = creature["x"] - my_x
-            delta_y = creature["y"] - my_y
-
-            # Check if creature is on screen
-            if abs(delta_x) > 7 or abs(delta_y) > 5:
-                print(f"Memory Scan: Creature too far from screen center")
-                return
-
-            screen_creature_x = coordinates_x[0] + delta_x * Addresses.square_size
-            screen_creature_y = coordinates_y[0] + delta_y * Addresses.square_size
-
-            # Use Alt+Click to attack the creature at calculated screen position
-            print(f"Memory Scan: Alt+Click at screen ({screen_creature_x}, {screen_creature_y})")
-            mouse_function(screen_creature_x, screen_creature_y, option=6)
-
-            # Verify
-            QThread.msleep(150)
-            new_target_id = read_targeting_status()
-            if new_target_id != 0:
-                print(f"Memory Scan: Attack confirmed! target_id={new_target_id}")
-            else:
-                print(f"Memory Scan: Click sent, waiting for target...")
-            return
-
-            # Old fallback code below (not reached)
-            if False:
-                print(f"Memory Scan: Failed to set target via memory, trying click fallback...")
-                # Fallback to click method
-                my_x, my_y, my_z = read_my_wpt()
-                if my_x is None:
-                    return
-                delta_x = creature["x"] - my_x
-                delta_y = creature["y"] - my_y
-                if abs(delta_x) <= 7 and abs(delta_y) <= 5:
-                    screen_creature_x = coordinates_x[0] + delta_x * Addresses.square_size
-                    screen_creature_y = coordinates_y[0] + delta_y * Addresses.square_size
-                    mouse_function(screen_creature_x, screen_creature_y, option=6)
-
-        except Exception as e:
-            print(f"Error in scan_and_click_memory: {e}")
 
     def stop(self):
         self.running = False
