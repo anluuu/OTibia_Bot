@@ -152,6 +152,7 @@ def load_tibia(window_title=None, proc_id=None, hwnd=None) -> None:
     process_handle = c.windll.kernel32.OpenProcess(0x1F0FFF, False, proc_id)
     modules = win32process.EnumProcessModules(process_handle)
     base_address = modules[0]
+    print(f"Base address: 0x{base_address:08X}")
 
 
 def load_custom_addresses():

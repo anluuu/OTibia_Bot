@@ -431,7 +431,7 @@ class WalkerTab(QWidget):
                 self.record_thread.stop()
                 self.record_thread.wait(2000)
             
-            self.record_thread = RecordThread(self.recordInterval_spinBox.value())
+            self.record_thread = RecordThread(self.interval_slider.value())
             self.record_thread.wpt_recorded_signal.connect(self.on_waypoint_recorded)
             
             # Use a timer to sync UI state to RecordThread
